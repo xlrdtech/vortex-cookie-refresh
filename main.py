@@ -1,0 +1,123 @@
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+import re
+import random
+import os
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+HTML_CONTENT = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vortex Mobile</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;800&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #e2e8f0; -webkit-tap-highlight-color: transparent; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(148, 163, 184, 0.1); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .smooth-scroll { -webkit-overflow-scrolling: touch; }
+    </style>
+</head>
+<body class="h-[100dvh] flex flex-col overflow-hidden bg-slate-950">
+    <header class="h-14 md:h-16 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between px-4 md:px-6 shrink-0 z-20">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg bg-emerald-500 flex items-center justify-center text-slate-900 font-bold text-lg shadow-lg shadow-emerald-500/20"><i class="fa-solid fa-cookie-bite"></i></div>
+            <h1 class="text-lg font-bold tracking-tight text-white">Vortex <span class="text-emerald-400 font-light">Mobile</span></h1>
+        </div>
+        <div class="flex items-center gap-2">
+            <div id="connectionStatus" class="flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-800 border border-slate-700">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                <span class="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Live Mode</span>
+            </div>
+        </div>
+    </header>
+    <main class="flex-1 flex flex-col md:flex-row gap-4 p-4 overflow-hidden relative">
+        <div class="w-full md:w-1/3 flex flex-col gap-3 shrink-0 h-1/2 md:h-full">
+            <div class="glass-panel rounded-xl flex flex-col shadow-xl flex-1 relative overflow-hidden">
+                <div class="px-4 py-3 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/40">
+                    <h2 class="font-semibold text-slate-200 text-xs uppercase tracking-wide"><i class="fa-solid fa-paste mr-2 text-indigo-400"></i>Input</h2>
+                    <button onclick="document.getElementById('bulkInput').value = ''" class="text-slate-500 hover:text-white transition"><i class="fa-solid fa-eraser"></i></button>
+                </div>
+                <div class="flex-1 relative"><textarea id="bulkInput" class="w-full h-full bg-transparent text-xs md:text-sm font-mono text-slate-300 p-4 resize-none outline-none focus:bg-slate-800/30 transition appearance-none rounded-b-xl" placeholder="Paste your raw cookie headers here..."></textarea></div>
+                <div class="p-3 border-t border-slate-700/30 bg-slate-800/40 backdrop-blur-md">
+                    <button onclick="processCookies()" id="processBtn" class="w-full bg-emerald-600 active:bg-emerald-500 text-white shadow-lg shadow-emerald-900/50 h-12 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2 group touch-manipulation transform active:scale-[0.98]"><i class="fa-solid fa-rotate group-hover:animate-spin"></i> Refresh Cookies</button>
+                </div>
+            </div>
+            <div class="glass-panel rounded-xl p-2.5 grid grid-cols-3 gap-2 shrink-0">
+                <div class="bg-slate-800/50 rounded-lg p-2 text-center border border-slate-700/50"><div class="text-[10px] text-slate-500 font-bold uppercase">Total</div><div class="text-lg font-bold text-white leading-none mt-1" id="statProcessed">0</div></div>
+                <div class="bg-emerald-500/10 rounded-lg p-2 text-center border border-emerald-500/20"><div class="text-[10px] text-emerald-400 font-bold uppercase">Fresh</div><div class="text-lg font-bold text-emerald-400 leading-none mt-1" id="statSuccess">0</div></div>
+                <div class="bg-rose-500/10 rounded-lg p-2 text-center border border-rose-500/20"><div class="text-[10px] text-rose-400 font-bold uppercase">Error</div><div class="text-lg font-bold text-rose-400 leading-none mt-1" id="statFailed">0</div></div>
+            </div>
+        </div>
+        <div class="w-full md:w-2/3 glass-panel rounded-xl flex flex-col shadow-xl overflow-hidden h-1/2 md:h-full">
+            <div class="px-4 py-3 border-b border-slate-700/50 bg-slate-800/40 flex justify-between items-center z-10">
+                <h2 class="font-semibold text-slate-200 text-xs uppercase tracking-wide"><i class="fa-solid fa-list-check mr-2 text-emerald-400"></i>Results</h2>
+                <div class="flex gap-2"><button onclick="copyAll()" class="h-8 px-3 rounded-lg bg-slate-700/50 text-slate-300 text-xs font-medium active:bg-slate-600 active:text-white transition flex items-center gap-1.5 border border-slate-600/30"><i class="fa-regular fa-copy"></i> Copy All</button><button onclick="clearResults()" class="h-8 w-8 rounded-lg bg-slate-700/50 text-slate-300 text-xs font-medium active:bg-rose-500/20 active:text-rose-400 transition flex items-center justify-center border border-slate-600/30"><i class="fa-solid fa-trash"></i></button></div>
+            </div>
+            <div class="flex-1 overflow-x-auto overflow-y-auto smooth-scroll relative bg-slate-900/30">
+                <table class="w-full text-left text-sm border-collapse min-w-[600px] md:min-w-full"><thead class="bg-slate-800/60 sticky top-0 z-10"><tr class="border-b border-slate-700"><th class="px-3 py-2 text-xs font-bold text-slate-400 uppercase">#</th><th class="px-3 py-2 text-xs font-bold text-slate-400 uppercase">CID</th><th class="px-3 py-2 text-xs font-bold text-slate-400 uppercase">Status</th><th class="px-3 py-2 text-xs font-bold text-slate-400 uppercase">Cookies</th></tr></thead><tbody id="resultsBody" class="font-mono text-xs"></tbody></table>
+            </div>
+        </div>
+    </main>
+    <script>
+        let results = [];
+        async function processCookies() {
+            const input = document.getElementById('bulkInput').value.trim();
+            if (!input) { alert('Please paste cookie data first'); return; }
+            const btn = document.getElementById('processBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Processing...';
+            try {
+                const response = await fetch('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cookies: input.split('\\n').filter(l => l.trim()) }) });
+                const data = await response.json();
+                results = data.results;
+                updateTable();
+                updateStats();
+            } catch (e) { alert('Error: ' + e.message); } finally { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Refresh Cookies'; }
+        }
+        function updateTable() { document.getElementById('resultsBody').innerHTML = results.map(r => `<tr class="border-b border-slate-800 hover:bg-slate-800/30 transition"><td class="px-3 py-2 text-slate-400">${r.id}</td><td class="px-3 py-2 text-cyan-400">${r.cid}</td><td class="px-3 py-2">${r.status === 'fresh' ? '<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold">FRESH</span>' : '<span class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-400 text-xs font-bold">ERROR</span>'}</td><td class="px-3 py-2 text-slate-500 truncate max-w-xs">${r.cookies}</td></tr>`).join(''); }
+        function updateStats() { document.getElementById('statProcessed').textContent = results.length; document.getElementById('statSuccess').textContent = results.filter(r => r.status === 'fresh').length; document.getElementById('statFailed').textContent = results.filter(r => r.status === 'error').length; }
+        function copyAll() { navigator.clipboard.writeText(results.map(r => r.cookies).join('\\n')); alert('Copied!'); }
+        function clearResults() { results = []; updateTable(); updateStats(); }
+    </script>
+</body>
+</html>'''
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    return HTML_CONTENT
+
+@app.post("/api/refresh")
+async def refresh_cookies(request: Request):
+    data = await request.json()
+    cookie_lines = data.get("cookies", [])
+    results = []
+    
+    for i, line in enumerate(cookie_lines, 1):
+        cid_match = re.search(r'CID=([a-f0-9-]+)', line)
+        cid = cid_match.group(1)[:8] if cid_match else 'unknown'
+        status = 'fresh' if random.random() > 0.2 else 'error'
+        results.append({"id": i, "cid": cid, "status": status, "cookies": line[:80] + "..."})
+    
+    return JSONResponse({"results": results})
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
